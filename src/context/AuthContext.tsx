@@ -54,7 +54,9 @@ interface AuthContextValue {
   loading: boolean;
   isDemoMode: boolean;
   pendingOfflineCount: number;
+  pendingOfflinePunches: number;
   isOnline: boolean;
+  hasConsent: boolean;
 
   // Active Live Timeclock State
   isClockedIn: boolean;
@@ -69,6 +71,7 @@ interface AuthContextValue {
   isOwner: boolean;
   isAdmin: boolean;
   isManager: boolean;
+  isManagerOrAbove: boolean;
   isEmployee: boolean;
   canManageOrg: boolean;
 
@@ -98,6 +101,7 @@ interface AuthContextValue {
   updateOrgSettings: (updates: Partial<Organization>) => Promise<void>;
   seedDemoDatabase: () => Promise<{ success: boolean; message: string }>;
   triggerManualSync: () => Promise<{ synced: number; failed: number }>;
+  syncOfflinePunches: () => Promise<{ synced: number; failed: number }>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -688,7 +692,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loading,
         isDemoMode,
         pendingOfflineCount,
+        pendingOfflinePunches: pendingOfflineCount,
         isOnline,
+        hasConsent: Boolean(orgUser?.consentAcceptedAt),
 
         isClockedIn: liveStatus.isClockedIn,
         isOnBreak: liveStatus.isOnBreak,
@@ -701,6 +707,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isOwner,
         isAdmin,
         isManager,
+        isManagerOrAbove: isManager,
         isEmployee,
         canManageOrg,
 
@@ -719,6 +726,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateOrgSettings,
         seedDemoDatabase,
         triggerManualSync,
+        syncOfflinePunches: triggerManualSync,
       }}
     >
       {children}

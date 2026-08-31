@@ -137,7 +137,11 @@ const MainAppContent: React.FC = () => {
       {/* Main Content Area */}
       <main className="flex-1 w-full">
         {activeTab === 'clock' && (
-          <ClockInFlow onViewTimesheet={() => setActiveTab('mytimesheet')} />
+          <ClockInFlow
+            onViewTimesheet={() => setActiveTab('mytimesheet')}
+            onNavigateToJobs={() => setActiveTab('jobs')}
+            onOpenAuthModal={() => setShowAuthModal(true)}
+          />
         )}
 
         {activeTab === 'mytimesheet' && (

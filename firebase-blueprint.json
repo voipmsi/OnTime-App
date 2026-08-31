@@ -1,0 +1,101 @@
+{
+  "entities": {
+    "Organization": {
+      "title": "Organization",
+      "description": "Company profile, timezone, overtime policies, and site requirements",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "timezone": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "requirePhoto": { "type": "boolean" },
+        "requireLocation": { "type": "boolean" }
+      },
+      "required": ["id", "name", "timezone", "createdAt"]
+    },
+    "OrgUser": {
+      "title": "OrgUser",
+      "description": "User profile with role (owner, admin, manager, employee) and job permissions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "role": { "type": "string", "enum": ["owner", "admin", "manager", "employee"] },
+        "fullName": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "assignedJobIds": { "type": "array" },
+        "hourlyRate": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "consentAcceptedAt": { "type": "number" }
+      },
+      "required": ["id", "organizationId", "role", "fullName", "email", "createdAt", "isActive"]
+    },
+    "Job": {
+      "title": "Job",
+      "description": "Job site or project location added by admin for employee timeclock clock-in",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "name": { "type": "string" },
+        "clientName": { "type": "string" },
+        "address": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "geofenceRadiusMeters": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "organizationId", "name", "latitude", "longitude", "isActive"]
+    },
+    "Punch": {
+      "title": "Punch",
+      "description": "Verified timeclock punch record submitted by employee for a specific job",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "userName": { "type": "string" },
+        "jobId": { "type": "string" },
+        "jobName": { "type": "string" },
+        "type": { "type": "string", "enum": ["clock_in", "clock_out", "break_start", "break_end"] },
+        "breakType": { "type": "string", "enum": ["paid", "unpaid"] },
+        "timestamp": { "type": "number" },
+        "photoUrl": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "gpsAccuracyMeters": { "type": "number" },
+        "distanceFromJobMeters": { "type": "number" },
+        "notes": { "type": "string" },
+        "syncedAt": { "type": "number" },
+        "createdOffline": { "type": "boolean" },
+        "syncStatus": { "type": "string", "enum": ["synced", "pending"] }
+      },
+      "required": ["id", "organizationId", "userId", "jobId", "type", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/organizations/{orgId}": {
+      "schema": "Organization",
+      "description": "Organization details and config"
+    },
+    "/organizations/{orgId}/users/{userId}": {
+      "schema": "OrgUser",
+      "description": "Organization team members and employee profiles"
+    },
+    "/organizations/{orgId}/jobs/{jobId}": {
+      "schema": "Job",
+      "description": "Job locations created by administrators in portal or database"
+    },
+    "/organizations/{orgId}/punches/{punchId}": {
+      "schema": "Punch",
+      "description": "Employee shift punches for assigned jobs with photo and GPS location"
+    }
+  }
+}
