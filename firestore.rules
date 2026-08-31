@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOrgMember(orgId) {
+      return isAuthenticated() && (
+        exists(/databases/$(database)/documents/organizations/$(orgId)/users/$(request.auth.uid))
+      );
+    }
+
+    function getOrgUser(orgId) {
+      return get(/databases/$(database)/documents/organizations/$(orgId)/users/$(request.auth.uid)).data;
+    }
+
+    function isOrgAdmin(orgId) {
+      return isOrgMember(orgId) && (
+        getOrgUser(orgId).role in ['owner', 'admin']
+      );
+    }
+
+    function isOrgManager(orgId) {
+      return isOrgMember(orgId) && (
+        getOrgUser(orgId).role in ['owner', 'admin', 'manager']
+      );
+    }
+
+    // Organizations collection
+    match /organizations/{orgId} {
+      allow read: if isAuthenticated() && (
+        isOrgMember(orgId) || 
+        resource.data.createdAt != null // Allow initial lookup
+      );
+      allow create: if isAuthenticated();
+      allow update, delete: if isOrgAdmin(orgId);
+
+      // Users subcollection
+      match /users/{userId} {
+        allow read: if isOrgMember(orgId);
+        allow create: if isAuthenticated() && (
+          request.auth.uid == userId || isOrgAdmin(orgId)
+        );
+        allow update: if isAuthenticated() && (
+          request.auth.uid == userId || isOrgAdmin(orgId)
+        );
+        allow delete: if isOrgAdmin(orgId);
+      }
+
+      // Jobs subcollection
+      match /jobs/{jobId} {
+        allow read: if isOrgMember(orgId);
+        allow write: if isOrgManager(orgId);
+      }
+
+      // Punches subcollection
+      match /punches/{punchId} {
+        allow read: if isOrgMember(orgId) && (
+          isOrgManager(orgId) || resource.data.userId == request.auth.uid
+        );
+        allow create: if isOrgMember(orgId) && (
+          request.resource.data.userId == request.auth.uid || isOrgManager(orgId)
+        );
+        allow update, delete: if isOrgAdmin(orgId);
+      }
+    }
+
+    // Top-level public demo or invite access fallback if needed
+    match /public_invites/{inviteId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+  }
+}

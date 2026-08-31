@@ -1,0 +1,11 @@
+{
+  "name": "WorkPulse Time Clock",
+  "description": "Multi-tenant mobile-first PWA time clock for remote and field teams with GPS geolocation, photo verification, offline punch queuing, timesheets, and admin management.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
