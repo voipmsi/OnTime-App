@@ -38,7 +38,7 @@ interface ActiveWorkerStatus {
 }
 
 export const LiveRoster: React.FC = () => {
-  const { punches, jobs, organization } = useAuth();
+  const { punches, jobs, organization, teamMembers } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterJobId, setFilterJobId] = useState('all');
   const [selectedPunchForModal, setSelectedPunchForModal] = useState<Punch | null>(null);
@@ -88,7 +88,8 @@ export const LiveRoster: React.FC = () => {
 
       if (clockInPunch) {
         const matchingJob = jobs.find((j) => j.id === clockInPunch!.jobId);
-        const matchingUser = DEMO_USERS.find((u) => u.id === userId);
+        const allUsers = teamMembers.length > 0 ? teamMembers : DEMO_USERS;
+        const matchingUser = allUsers.find((u) => u.id === userId);
 
         const elapsed = Math.max(0, Math.floor((currentTime - clockInPunch.timestamp) / 1000));
         const breakElapsed = breakStartPunch
@@ -117,7 +118,7 @@ export const LiveRoster: React.FC = () => {
     }
 
     return activeList.sort((a, b) => b.clockInTime - a.clockInTime);
-  }, [punches, jobs, currentTime]);
+  }, [punches, jobs, currentTime, teamMembers]);
 
   // Filtered workers
   const filteredWorkers = useMemo(() => {

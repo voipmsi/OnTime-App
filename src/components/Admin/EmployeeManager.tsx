@@ -12,15 +12,26 @@ import {
   Edit2,
   Phone,
   Search,
+  Copy,
+  Check,
+  Send,
+  Power,
+  Info,
+  ExternalLink,
+  Sparkles,
 } from 'lucide-react';
 import { OrgUser, UserRole } from '../../types';
 import { DEMO_USERS } from '../../lib/demoData';
 
 export const EmployeeManager: React.FC = () => {
-  const { jobs, addEmployee, updateEmployee, organization, orgUser: currentAuthUser, isOwner, isAdmin } = useAuth();
+  const { jobs, addEmployee, updateEmployee, organization, orgUser: currentAuthUser, isOwner, isAdmin, teamMembers } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<OrgUser | null>(null);
+
+  // Invite Notice Modal state
+  const [noticeUser, setNoticeUser] = useState<OrgUser | null>(null);
+  const [copiedNotice, setCopiedNotice] = useState(false);
 
   // Form states
   const [fullName, setFullName] = useState('');
@@ -32,7 +43,8 @@ export const EmployeeManager: React.FC = () => {
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const teamList = DEMO_USERS;
+  // Use dynamic team members from auth context, falling back to demo users
+  const teamList = teamMembers && teamMembers.length > 0 ? teamMembers : DEMO_USERS;
 
   const handleOpenCreate = () => {
     setEditingUser(null);
@@ -58,6 +70,18 @@ export const EmployeeManager: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const handleToggleActive = async (user: OrgUser, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      await updateEmployee(user.id, { isActive: !user.isActive });
+      if (noticeUser && noticeUser.id === user.id) {
+        setNoticeUser({ ...noticeUser, isActive: !user.isActive });
+      }
+    } catch (err) {
+      console.error('Failed to toggle active status:', err);
+    }
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim() || !email.trim()) return;
@@ -74,6 +98,7 @@ export const EmployeeManager: React.FC = () => {
           assignedJobIds: selectedJobIds,
           isActive,
         });
+        setIsModalOpen(false);
       } else {
         await addEmployee({
           fullName: fullName.trim(),
@@ -82,9 +107,26 @@ export const EmployeeManager: React.FC = () => {
           role,
           hourlyRate: Number(hourlyRate),
           assignedJobIds: selectedJobIds,
+          isActive,
         });
+        setIsModalOpen(false);
+
+        // Show the Invite Notice & Access Credentials modal for the newly added worker!
+        const createdUser: OrgUser = {
+          id: `temp_${Date.now()}`,
+          organizationId: organization?.id || 'org',
+          role,
+          fullName: fullName.trim(),
+          email: email.trim().toLowerCase(),
+          phone: phone.trim() || undefined,
+          createdAt: Date.now(),
+          assignedJobIds: selectedJobIds,
+          hourlyRate: Number(hourlyRate),
+          isActive,
+          avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(fullName.trim())}`,
+        };
+        setNoticeUser(createdUser);
       }
-      setIsModalOpen(false);
     } catch (err) {
       console.error(err);
     } finally {
@@ -98,6 +140,34 @@ export const EmployeeManager: React.FC = () => {
     } else {
       setSelectedJobIds([...selectedJobIds, jobId]);
     }
+  };
+
+  const generateInviteText = (user: OrgUser) => {
+    const orgTitle = organization?.name || 'Apex Field Services';
+    const siteNames = user.assignedJobIds?.length
+      ? user.assignedJobIds.map((jid) => jobs.find((j) => j.id === jid)?.name || jid).join(', ')
+      : 'All company project sites';
+
+    return `Hello ${user.fullName},
+
+You have been invited to join ${orgTitle} on WorkPulse Field Time Clock.
+
+Your Worker Account is ACTIVE and ready to use:
+- Access Portal: ${window.location.origin}
+- Login Role: Select "Employee Login"
+- Email: ${user.email}
+- Default Password / PIN: password123
+- Hourly Rate: $${user.hourlyRate || 30}/hr
+- Assigned Job Sites: ${siteNames}
+
+When starting your shift, open the link on your mobile phone, choose your active job site, and tap "START SHIFT / CLOCK IN".`;
+  };
+
+  const handleCopyNotice = (user: OrgUser) => {
+    const text = generateInviteText(user);
+    navigator.clipboard.writeText(text);
+    setCopiedNotice(true);
+    setTimeout(() => setCopiedNotice(false), 2500);
   };
 
   const filteredTeam = teamList.filter(
@@ -119,7 +189,7 @@ export const EmployeeManager: React.FC = () => {
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Manage worker accounts, assign job permissions, hourly wages, and view safety consent status
+            Manage worker accounts, assign job permissions, send onboarding notices, and toggle active status
           </p>
         </div>
 
@@ -134,21 +204,41 @@ export const EmployeeManager: React.FC = () => {
         )}
       </div>
 
-      {/* Search */}
-      <div className="flex items-center justify-between gap-3">
+      {/* Guide Banner: Worker Invites & Instant Activation */}
+      <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-indigo-950">
+        <div className="flex items-start space-x-3">
+          <div className="p-2 rounded-xl bg-indigo-100 text-indigo-700 shrink-0 mt-0.5">
+            <Sparkles className="w-4 h-4" />
+          </div>
+          <div>
+            <span className="font-bold text-indigo-900">How Worker Onboarding & Activation Works:</span>
+            <p className="text-indigo-800 text-[11px] mt-0.5 leading-relaxed">
+              Newly added workers are set to <span className="font-semibold text-emerald-700">Active</span> immediately. They can sign in on any device by switching to the <span className="font-semibold">Employee Login</span> tab with their email and PIN (<code className="bg-indigo-100/80 px-1 py-0.5 rounded text-indigo-900 font-mono text-[10px]">password123</code>). Click <strong>"Notice & Login Info"</strong> on any worker card to copy or email their personalized invite notice.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Search & Stats */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <div className="relative flex-1 max-w-sm">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search employee name or email..."
+            placeholder="Search employee name or email (e.g. Vaughn Smith)..."
             className="w-full text-xs pl-9 pr-3 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-500 shadow-xs"
           />
         </div>
-        <span className="text-xs text-slate-500 font-medium">
-          {filteredTeam.length} members in {organization?.name}
-        </span>
+        <div className="flex items-center space-x-2 text-xs text-slate-500 font-medium">
+          <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
+            {teamList.filter((m) => m.isActive).length} Active
+          </span>
+          <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 border border-slate-200">
+            {teamList.length} Total in {organization?.name || 'Organization'}
+          </span>
+        </div>
       </div>
 
       {/* Team Cards Grid */}
@@ -159,7 +249,7 @@ export const EmployeeManager: React.FC = () => {
             className={`rounded-xl border p-5 transition shadow-sm space-y-4 ${
               member.isActive
                 ? 'bg-white border-slate-200 hover:border-indigo-200'
-                : 'bg-slate-50 border-slate-200 opacity-60'
+                : 'bg-slate-50/80 border-slate-200 opacity-75'
             }`}
           >
             {/* Header */}
@@ -168,37 +258,66 @@ export const EmployeeManager: React.FC = () => {
                 <img
                   src={
                     member.avatarUrl ||
-                    `https://api.dicebear.com/7.x/avataaars/svg?seed=${member.fullName}`
+                    `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(member.fullName)}`
                   }
                   alt={member.fullName}
                   className="w-12 h-12 rounded-xl object-cover border border-slate-200 bg-slate-100 shrink-0"
                 />
                 <div className="min-w-0">
-                  <h4 className="text-sm font-bold text-slate-900 truncate">{member.fullName}</h4>
-                  <span
-                    className={`inline-block mt-0.5 text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
-                      member.role === 'owner'
-                        ? 'bg-purple-50 text-purple-700 border border-purple-200'
-                        : member.role === 'admin'
-                        ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
-                        : member.role === 'manager'
-                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                        : 'bg-slate-100 text-slate-700 border border-slate-200'
-                    }`}
-                  >
-                    {member.role}
-                  </span>
+                  <div className="flex items-center space-x-1.5">
+                    <h4 className="text-sm font-bold text-slate-900 truncate">{member.fullName}</h4>
+                  </div>
+                  <div className="flex items-center space-x-1.5 mt-0.5">
+                    <span
+                      className={`inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                        member.role === 'owner'
+                          ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                          : member.role === 'admin'
+                          ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                          : member.role === 'manager'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : 'bg-slate-100 text-slate-700 border border-slate-200'
+                      }`}
+                    >
+                      {member.role}
+                    </span>
+
+                    {/* Active Status Badge */}
+                    <span
+                      className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        member.isActive
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-slate-200 text-slate-600'
+                      }`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full mr-1 ${member.isActive ? 'bg-emerald-600 animate-pulse' : 'bg-slate-400'}`} />
+                      {member.isActive ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
                 </div>
               </div>
 
               {isAdmin && (
-                <button
-                  onClick={() => handleOpenEdit(member)}
-                  className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition shrink-0 ml-2"
-                  title="Edit Worker"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center space-x-1 shrink-0 ml-2">
+                  <button
+                    onClick={() => handleOpenEdit(member)}
+                    className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
+                    title="Edit Worker Settings"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={(e) => handleToggleActive(member, e)}
+                    className={`p-1.5 rounded-lg transition ${
+                      member.isActive
+                        ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                        : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                    }`}
+                    title={member.isActive ? 'Deactivate Worker' : 'Activate Worker'}
+                  >
+                    <Power className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               )}
             </div>
 
@@ -266,11 +385,121 @@ export const EmployeeManager: React.FC = () => {
                 )}
               </div>
             </div>
+
+            {/* Quick Action: Share Notice & Login Info */}
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setNoticeUser(member)}
+                className="w-full flex items-center justify-center space-x-1.5 py-2 px-3 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>Notice & Login Info</span>
+              </button>
+            </div>
           </div>
         ))}
       </div>
 
-      {/* Add / Edit Member Modal */}
+      {/* ------------------------------------------------------------- */}
+      {/* WORKER INVITATION & ACCESS NOTICE MODAL */}
+      {/* ------------------------------------------------------------- */}
+      {noticeUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-fadeIn overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 text-slate-900 shadow-2xl space-y-5 my-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white font-bold text-sm shadow-xs">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Worker Invite & Access Notice</h3>
+                  <p className="text-xs text-slate-500">Credentials and onboarding details for {noticeUser.fullName}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setNoticeUser(null)}
+                className="text-slate-400 hover:text-slate-700 p-1 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Active Status Callout */}
+            <div className={`p-3.5 rounded-xl border text-xs flex items-center justify-between ${
+              noticeUser.isActive
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
+                : 'bg-amber-50 border-amber-200 text-amber-950'
+            }`}>
+              <div className="flex items-center space-x-2">
+                <span className={`w-2.5 h-2.5 rounded-full ${noticeUser.isActive ? 'bg-emerald-600 animate-pulse' : 'bg-amber-500'}`} />
+                <div>
+                  <span className="font-bold">
+                    Account Status: {noticeUser.isActive ? 'Active & Ready for Clock-In' : 'Inactive (Suspended)'}
+                  </span>
+                  <p className="text-[11px] text-slate-600">
+                    {noticeUser.isActive
+                      ? 'The worker can sign in on any device right now to select jobs and punch in.'
+                      : 'This worker is temporarily paused from logging in or punching time.'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleToggleActive(noticeUser)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                  noticeUser.isActive
+                    ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                    : 'bg-amber-600 text-white hover:bg-amber-700'
+                }`}
+              >
+                {noticeUser.isActive ? 'Active' : 'Activate Now'}
+              </button>
+            </div>
+
+            {/* Formatted Invite Notice Box */}
+            <div className="space-y-2 text-xs">
+              <label className="block text-slate-700 font-bold">Personalized Onboarding Notice:</label>
+              <div className="p-3.5 rounded-xl bg-slate-900 text-slate-100 font-mono text-[11px] leading-relaxed whitespace-pre-wrap border border-slate-800 select-all max-h-56 overflow-y-auto">
+                {generateInviteText(noticeUser)}
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row items-center gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => handleCopyNotice(noticeUser)}
+                className="w-full sm:flex-1 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center justify-center space-x-2 transition shadow-xs"
+              >
+                {copiedNotice ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
+                <span>{copiedNotice ? 'Copied to Clipboard!' : 'Copy Invitation Notice'}</span>
+              </button>
+
+              <a
+                href={`mailto:${noticeUser.email}?subject=${encodeURIComponent(`Welcome to ${organization?.name || 'Apex Field Services'} - WorkPulse Time Clock Access`)}&body=${encodeURIComponent(generateInviteText(noticeUser))}`}
+                className="w-full sm:flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center space-x-2 transition shadow-xs text-center"
+              >
+                <Send className="w-4 h-4" />
+                <span>Send via Email</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={() => setNoticeUser(null)}
+                className="w-full sm:w-auto py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* ADD / EDIT MEMBER MODAL */}
+      {/* ------------------------------------------------------------- */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-fadeIn overflow-y-auto">
           <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 text-slate-900 shadow-2xl space-y-5 my-auto">
@@ -295,7 +524,7 @@ export const EmployeeManager: React.FC = () => {
                     required
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
-                    placeholder="e.g. Jordan Taylor"
+                    placeholder="e.g. Vaughn Smith"
                     className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-500"
                   />
                 </div>
@@ -307,7 +536,7 @@ export const EmployeeManager: React.FC = () => {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="e.g. jordan.taylor@company.com"
+                    placeholder="e.g. vaughn.smith@company.com"
                     className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-500"
                   />
                 </div>
@@ -345,7 +574,7 @@ export const EmployeeManager: React.FC = () => {
                     type="text"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    placeholder="(555) 000-0000"
+                    placeholder="(415) 555-0100"
                     className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-500"
                   />
                 </div>
@@ -386,7 +615,7 @@ export const EmployeeManager: React.FC = () => {
                   className="w-4 h-4 rounded border-slate-300 bg-white text-indigo-600 focus:ring-indigo-500"
                 />
                 <label htmlFor="userActiveToggle" className="text-slate-700 font-medium cursor-pointer">
-                  Active team member (can sign in and punch time)
+                  Active team member (can immediately sign in and punch time)
                 </label>
               </div>
 
@@ -403,7 +632,7 @@ export const EmployeeManager: React.FC = () => {
                   disabled={saving}
                   className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-sm transition disabled:opacity-50"
                 >
-                  {saving ? 'Saving...' : editingUser ? 'Update Member' : 'Invite Member'}
+                  {saving ? 'Saving...' : editingUser ? 'Update Member' : 'Invite Member & View Notice'}
                 </button>
               </div>
             </form>

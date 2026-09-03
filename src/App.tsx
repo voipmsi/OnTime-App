@@ -8,6 +8,7 @@ import { TimesheetsView } from './components/Admin/TimesheetsView';
 import { JobManager } from './components/Admin/JobManager';
 import { EmployeeManager } from './components/Admin/EmployeeManager';
 import { OrgSettings } from './components/Admin/OrgSettings';
+import { UserGuide } from './components/UserGuide';
 import { ConsentModal } from './components/ConsentModal';
 import { AuthModal } from './components/AuthModal';
 import {
@@ -20,6 +21,7 @@ import {
   FileSpreadsheet,
   MapPin,
   Users,
+  BookOpen,
 } from 'lucide-react';
 
 const MainAppContent: React.FC = () => {
@@ -157,13 +159,15 @@ const MainAppContent: React.FC = () => {
         {activeTab === 'team' && isManagerOrAbove && <EmployeeManager />}
 
         {activeTab === 'settings' && isManagerOrAbove && <OrgSettings />}
+
+        {activeTab === 'userguide' && <UserGuide />}
       </main>
 
       {/* Mobile Bottom Navigation Bar for quick thumb switching */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1 flex items-center justify-around shadow-lg">
         <button
           onClick={() => setActiveTab('clock')}
-          className={`flex flex-col items-center py-1 px-3 rounded-lg transition ${
+          className={`flex flex-col items-center py-1 px-2 rounded-lg transition ${
             activeTab === 'clock' ? 'text-indigo-600 font-bold' : 'text-slate-500 hover:text-slate-800'
           }`}
         >
@@ -173,7 +177,7 @@ const MainAppContent: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('mytimesheet')}
-          className={`flex flex-col items-center py-1 px-3 rounded-lg transition ${
+          className={`flex flex-col items-center py-1 px-2 rounded-lg transition ${
             activeTab === 'mytimesheet' ? 'text-indigo-600 font-bold' : 'text-slate-500 hover:text-slate-800'
           }`}
         >
@@ -185,19 +189,19 @@ const MainAppContent: React.FC = () => {
           <>
             <button
               onClick={() => setActiveTab('liveroster')}
-              className={`flex flex-col items-center py-1 px-3 rounded-lg transition ${
+              className={`flex flex-col items-center py-1 px-2 rounded-lg transition ${
                 activeTab === 'liveroster'
                   ? 'text-indigo-600 font-bold'
                   : 'text-slate-500 hover:text-slate-800'
               }`}
             >
               <Radio className="w-5 h-5" />
-              <span className="text-[10px] mt-0.5">Live Roster</span>
+              <span className="text-[10px] mt-0.5">Roster</span>
             </button>
 
             <button
               onClick={() => setActiveTab('timesheets')}
-              className={`flex flex-col items-center py-1 px-3 rounded-lg transition ${
+              className={`flex flex-col items-center py-1 px-2 rounded-lg transition ${
                 activeTab === 'timesheets'
                   ? 'text-indigo-600 font-bold'
                   : 'text-slate-500 hover:text-slate-800'
@@ -208,6 +212,18 @@ const MainAppContent: React.FC = () => {
             </button>
           </>
         )}
+
+        <button
+          onClick={() => setActiveTab('userguide')}
+          className={`flex flex-col items-center py-1 px-2 rounded-lg transition ${
+            activeTab === 'userguide'
+              ? 'text-indigo-600 font-bold'
+              : 'text-amber-600 hover:text-amber-700'
+          }`}
+        >
+          <BookOpen className="w-5 h-5" />
+          <span className="text-[10px] mt-0.5 font-medium">Guides & PDF</span>
+        </button>
       </div>
 
       {/* Consent Modal */}

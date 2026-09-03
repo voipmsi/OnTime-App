@@ -26,7 +26,7 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-  const { signInWithEmail, signUpWithOrg, loginAsDemoUser, orgUser } = useAuth();
+  const { signInWithEmail, signUpWithOrg, loginAsDemoUser, orgUser, teamMembers } = useAuth();
 
   // Top portal toggle: 'admin' vs 'employee'
   const [activePortal, setActivePortal] = useState<'admin' | 'employee'>('admin');
@@ -80,12 +80,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       if (!email.trim() || !password.trim()) {
         throw new Error('Please enter worker email and password/PIN');
       }
-      // Check if matches a demo worker email
-      const matchedDemo = DEMO_USERS.find(
+      // Check if matches a registered or demo worker email
+      const allWorkers = teamMembers.length > 0 ? teamMembers : DEMO_USERS;
+      const matchedWorker = allWorkers.find(
         (u) => u.email.toLowerCase() === email.trim().toLowerCase()
       );
-      if (matchedDemo) {
-        loginAsDemoUser(matchedDemo.id);
+      if (matchedWorker) {
+        if (!matchedWorker.isActive) {
+          throw new Error('This employee account is currently set to inactive. Please ask an Admin to activate your access.');
+        }
+        loginAsDemoUser(matchedWorker.id);
         onClose();
         return;
       }
@@ -100,8 +104,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
-  const adminPersonas = DEMO_USERS.filter((u) => u.role === 'owner' || u.role === 'admin' || u.role === 'manager');
-  const employeePersonas = DEMO_USERS.filter((u) => u.role === 'employee');
+  const currentMembers = teamMembers.length > 0 ? teamMembers : DEMO_USERS;
+  const adminPersonas = currentMembers.filter((u) => (u.role === 'owner' || u.role === 'admin' || u.role === 'manager') && u.isActive !== false);
+  const employeePersonas = currentMembers.filter((u) => u.role === 'employee' && u.isActive !== false);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-fadeIn overflow-y-auto">

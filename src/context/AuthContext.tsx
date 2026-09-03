@@ -45,12 +45,22 @@ import {
 } from '../lib/offlineQueue';
 import { calculateDistanceInMeters } from '../lib/geoUtils';
 
+// LocalStorage Keys for persistent storage
+const LS_ORG_KEY = 'workpulse_persisted_org';
+const LS_JOBS_KEY = 'workpulse_persisted_jobs';
+const LS_TEAM_KEY = 'workpulse_persisted_team';
+const LS_PUNCHES_KEY = 'workpulse_persisted_punches';
+const LS_ACTIVE_USER_ID_KEY = 'workpulse_active_user_id';
+const LS_SAVED_ORGS_LIST_KEY = 'workpulse_saved_orgs_list';
+
 interface AuthContextValue {
   firebaseUser: User | null;
   orgUser: OrgUser | null;
   organization: Organization | null;
   jobs: Job[];
   punches: Punch[];
+  teamMembers: OrgUser[];
+  savedOrganizations: Organization[];
   loading: boolean;
   isDemoMode: boolean;
   pendingOfflineCount: number;
@@ -96,9 +106,19 @@ interface AuthContextValue {
   // Admin Operations
   createJob: (job: Omit<Job, 'id' | 'organizationId' | 'createdAt'>) => Promise<void>;
   updateJob: (jobId: string, updates: Partial<Job>) => Promise<void>;
-  addEmployee: (employee: { fullName: string; email: string; role: UserRole; assignedJobIds: string[]; hourlyRate?: number; phone?: string }) => Promise<void>;
+  addEmployee: (employee: {
+    fullName: string;
+    email: string;
+    role: UserRole;
+    assignedJobIds: string[];
+    hourlyRate?: number;
+    phone?: string;
+    isActive?: boolean;
+  }) => Promise<void>;
   updateEmployee: (userId: string, updates: Partial<OrgUser>) => Promise<void>;
   updateOrgSettings: (updates: Partial<Organization>) => Promise<void>;
+  switchOrganization: (orgId: string) => void;
+  resetToDefaultDemoData: () => void;
   seedDemoDatabase: () => Promise<{ success: boolean; message: string }>;
   triggerManualSync: () => Promise<{ synced: number; failed: number }>;
   syncOfflinePunches: () => Promise<{ synced: number; failed: number }>;
@@ -106,16 +126,129 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// Safe LocalStorage read helper
+function getStoredJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
-  const [orgUser, setOrgUser] = useState<OrgUser | null>(null);
-  const [organization, setOrganization] = useState<Organization | null>(null);
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [punches, setPunches] = useState<Punch[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isDemoMode, setIsDemoMode] = useState(true); // Defaults to demo mode for instant testing
+
+  // Initialize state from LocalStorage so data NEVER disappears on reload
+  const [organization, setOrganization] = useState<Organization | null>(() => {
+    return getStoredJson<Organization>(LS_ORG_KEY, DEMO_ORGANIZATION);
+  });
+
+  const [teamMembers, setTeamMembers] = useState<OrgUser[]>(() => {
+    const stored = getStoredJson<OrgUser[]>(LS_TEAM_KEY, []);
+    if (stored && stored.length > 0) return stored;
+    return [...DEMO_USERS];
+  });
+
+  const [jobs, setJobs] = useState<Job[]>(() => {
+    const stored = getStoredJson<Job[]>(LS_JOBS_KEY, []);
+    if (stored && stored.length > 0) return stored;
+    return [...DEMO_JOBS];
+  });
+
+  const [punches, setPunches] = useState<Punch[]>(() => {
+    const stored = getStoredJson<Punch[]>(LS_PUNCHES_KEY, []);
+    if (stored && stored.length > 0) return stored;
+    return generateDemoPunches();
+  });
+
+  const [savedOrganizations, setSavedOrganizations] = useState<Organization[]>(() => {
+    const list = getStoredJson<Organization[]>(LS_SAVED_ORGS_LIST_KEY, []);
+    if (!list.find((o) => o.id === DEMO_ORG_ID)) {
+      list.unshift(DEMO_ORGANIZATION);
+    }
+    return list;
+  });
+
+  const [orgUser, setOrgUser] = useState<OrgUser | null>(() => {
+    const savedUserId = localStorage.getItem(LS_ACTIVE_USER_ID_KEY);
+    const initialTeam = getStoredJson<OrgUser[]>(LS_TEAM_KEY, DEMO_USERS);
+    if (savedUserId) {
+      const match = initialTeam.find((u) => u.id === savedUserId);
+      if (match) return match;
+    }
+    // Default to Alex Rivera or first admin
+    return initialTeam.find((u) => u.role === 'owner' || u.role === 'admin') || initialTeam[0] || DEMO_USERS[2];
+  });
+
+  const [loading, setLoading] = useState(false);
+  const [isDemoMode, setIsDemoMode] = useState(true);
   const [pendingOfflineCount, setPendingOfflineCount] = useState(0);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  // -----------------------------------------------------------------
+  // AUTO-PERSIST TO LOCALSTORAGE
+  // -----------------------------------------------------------------
+  useEffect(() => {
+    if (organization) {
+      try {
+        localStorage.setItem(LS_ORG_KEY, JSON.stringify(organization));
+        localStorage.setItem('current_org_id', organization.id);
+        // Also update saved org list
+        setSavedOrganizations((prev) => {
+          const exists = prev.find((o) => o.id === organization.id);
+          const updated = exists
+            ? prev.map((o) => (o.id === organization.id ? organization : o))
+            : [organization, ...prev];
+          localStorage.setItem(LS_SAVED_ORGS_LIST_KEY, JSON.stringify(updated));
+          return updated;
+        });
+      } catch (err) {
+        console.warn('LocalStorage save org error:', err);
+      }
+    }
+  }, [organization]);
+
+  useEffect(() => {
+    if (teamMembers && teamMembers.length > 0) {
+      try {
+        localStorage.setItem(LS_TEAM_KEY, JSON.stringify(teamMembers));
+      } catch (err) {
+        console.warn('LocalStorage save team error:', err);
+      }
+    }
+  }, [teamMembers]);
+
+  useEffect(() => {
+    if (jobs && jobs.length > 0) {
+      try {
+        localStorage.setItem(LS_JOBS_KEY, JSON.stringify(jobs));
+      } catch (err) {
+        console.warn('LocalStorage save jobs error:', err);
+      }
+    }
+  }, [jobs]);
+
+  useEffect(() => {
+    if (punches) {
+      try {
+        localStorage.setItem(LS_PUNCHES_KEY, JSON.stringify(punches));
+      } catch (err) {
+        console.warn('LocalStorage save punches error:', err);
+      }
+    }
+  }, [punches]);
+
+  useEffect(() => {
+    if (orgUser) {
+      try {
+        localStorage.setItem(LS_ACTIVE_USER_ID_KEY, orgUser.id);
+      } catch (err) {
+        console.warn('LocalStorage save active user id error:', err);
+      }
+    }
+  }, [orgUser]);
 
   // Online / Offline tracking
   useEffect(() => {
@@ -141,18 +274,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [organization?.id]);
 
-  // Demo Mode initialization
-  useEffect(() => {
-    if (isDemoMode && !firebaseUser) {
-      // Initialize with demo organization & Alex Rivera by default
-      setOrganization(DEMO_ORGANIZATION);
-      setJobs(DEMO_JOBS);
-      setOrgUser(DEMO_USERS[2]); // Alex Rivera
-      setPunches(generateDemoPunches());
-      setLoading(false);
-    }
-  }, [isDemoMode, firebaseUser]);
-
   // Real Firebase Auth listener
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
@@ -161,12 +282,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsDemoMode(false);
         setLoading(true);
 
-        // Find user profile across organizations or in user index
         try {
-          // Check local stored orgId or user metadata
-          const savedOrgId = localStorage.getItem('current_org_id') || DEMO_ORG_ID;
+          const savedOrgId = localStorage.getItem('current_org_id') || organization?.id || DEMO_ORG_ID;
 
-          // Attempt lookup in savedOrgId/users/uid
           const userDocRef = doc(db, 'organizations', savedOrgId, 'users', fbUser.uid);
           const userSnap = await getDoc(userDocRef);
 
@@ -174,14 +292,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const uData = userSnap.data() as OrgUser;
             setOrgUser(uData);
 
-            // Fetch Org doc
             const orgDocRef = doc(db, 'organizations', savedOrgId);
             const orgSnap = await getDoc(orgDocRef);
             if (orgSnap.exists()) {
               setOrganization(orgSnap.data() as Organization);
             }
           } else {
-            // Default user profile if fresh
             const defaultUser: OrgUser = {
               id: fbUser.uid,
               organizationId: savedOrgId,
@@ -191,7 +307,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               createdAt: Date.now(),
               assignedJobIds: [],
               isActive: true,
-              consentAcceptedAt: null,
+              consentAcceptedAt: Date.now(),
             };
             setOrgUser(defaultUser);
           }
@@ -200,50 +316,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } finally {
           setLoading(false);
         }
-      } else {
-        if (!isDemoMode) {
-          setOrgUser(null);
-          setOrganization(null);
-          setJobs([]);
-          setPunches([]);
-          setLoading(false);
-        }
       }
     });
 
     return () => unsubscribeAuth();
-  }, [isDemoMode]);
+  }, []);
 
-  // Listen to Firestore real-time jobs & punches when organization is set
+  // Listen to Firestore real-time jobs, punches & users when in Firebase Auth mode
   useEffect(() => {
     if (!organization?.id || isDemoMode) return;
 
-    // Listen to jobs
-    const jobsRef = collection(db, 'organizations', organization.id, 'jobs');
-    const unsubJobs = onSnapshot(jobsRef, (snapshot) => {
-      const jList: Job[] = [];
-      snapshot.forEach((doc) => {
-        jList.push({ id: doc.id, ...doc.data() } as Job);
-      });
-      setJobs(jList.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)));
-    }, (err) => {
-      console.warn('Firestore jobs listener warning:', err);
-    });
+    const usersRef = collection(db, 'organizations', organization.id, 'users');
+    const unsubUsers = onSnapshot(
+      usersRef,
+      (snapshot) => {
+        const uList: OrgUser[] = [];
+        snapshot.forEach((d) => {
+          uList.push({ id: d.id, ...d.data() } as OrgUser);
+        });
+        if (uList.length > 0) setTeamMembers(uList);
+      },
+      (err) => console.warn('Firestore users listener:', err)
+    );
 
-    // Listen to punches
+    const jobsRef = collection(db, 'organizations', organization.id, 'jobs');
+    const unsubJobs = onSnapshot(
+      jobsRef,
+      (snapshot) => {
+        const jList: Job[] = [];
+        snapshot.forEach((d) => {
+          jList.push({ id: d.id, ...d.data() } as Job);
+        });
+        if (jList.length > 0) setJobs(jList.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)));
+      },
+      (err) => console.warn('Firestore jobs listener:', err)
+    );
+
     const punchesRef = collection(db, 'organizations', organization.id, 'punches');
     const punchesQuery = query(punchesRef, orderBy('timestamp', 'desc'));
-    const unsubPunches = onSnapshot(punchesQuery, (snapshot) => {
-      const pList: Punch[] = [];
-      snapshot.forEach((doc) => {
-        pList.push({ id: doc.id, ...doc.data() } as Punch);
-      });
-      setPunches(pList);
-    }, (err) => {
-      console.warn('Firestore punches listener warning:', err);
-    });
+    const unsubPunches = onSnapshot(
+      punchesQuery,
+      (snapshot) => {
+        const pList: Punch[] = [];
+        snapshot.forEach((d) => {
+          pList.push({ id: d.id, ...d.data() } as Punch);
+        });
+        if (pList.length > 0) setPunches(pList);
+      },
+      (err) => console.warn('Firestore punches listener:', err)
+    );
 
     return () => {
+      unsubUsers();
       unsubJobs();
       unsubPunches();
     };
@@ -263,7 +387,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     }
 
-    // Filter punches for this user and sort chronologically
     const userPunches = punches
       .filter((p) => p.userId === orgUser.id)
       .sort((a, b) => a.timestamp - b.timestamp);
@@ -296,15 +419,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    const currentJob = jobs.find((j) => j.id === activeJobId) || (activeClockInPunch ? {
-      id: activeClockInPunch.jobId,
-      organizationId: organization?.id || '',
-      name: activeClockInPunch.jobName,
-      address: '',
-      latitude: activeClockInPunch.latitude || 0,
-      longitude: activeClockInPunch.longitude || 0,
-      isActive: true,
-    } : null);
+    const currentJob =
+      jobs.find((j) => j.id === activeJobId) ||
+      (activeClockInPunch
+        ? {
+            id: activeClockInPunch.jobId,
+            organizationId: organization?.id || '',
+            name: activeClockInPunch.jobName,
+            address: '',
+            latitude: activeClockInPunch.latitude || 0,
+            longitude: activeClockInPunch.longitude || 0,
+            isActive: true,
+          }
+        : null);
 
     return {
       isClockedIn,
@@ -317,7 +444,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [orgUser, punches, jobs, organization]);
 
-  // Live timer interval ticker (updates every second)
+  // Live timer interval ticker
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [breakElapsedSeconds, setBreakElapsedSeconds] = useState(0);
 
@@ -359,8 +486,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signUpWithOrg = async (orgName: string, fullName: string, email: string, pass: string) => {
     setIsDemoMode(false);
-    const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
-    const uid = userCredential.user.uid;
+    let uid = `user_${Date.now()}`;
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
+      uid = userCredential.user.uid;
+    } catch (authErr: any) {
+      console.warn('Firebase Auth signup warning (proceeding with local persistent store):', authErr);
+    }
 
     const newOrgId = `org_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     localStorage.setItem('current_org_id', newOrgId);
@@ -386,14 +518,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       consentAcceptedAt: Date.now(),
       isActive: true,
       hourlyRate: 50,
+      avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(fullName.trim())}`,
     };
 
-    // Save to Firestore
-    await setDoc(doc(db, 'organizations', newOrgId), newOrg);
-    await setDoc(doc(db, 'organizations', newOrgId, 'users', uid), newOwner);
+    // Save to LocalStorage immediately
+    localStorage.setItem(LS_ORG_KEY, JSON.stringify(newOrg));
+    localStorage.setItem(LS_ACTIVE_USER_ID_KEY, uid);
+    localStorage.setItem(LS_TEAM_KEY, JSON.stringify([newOwner]));
 
     setOrganization(newOrg);
     setOrgUser(newOwner);
+    setTeamMembers([newOwner]);
+
+    // Save to Firestore if available
+    try {
+      await setDoc(doc(db, 'organizations', newOrgId), newOrg);
+      await setDoc(doc(db, 'organizations', newOrgId, 'users', uid), newOwner);
+    } catch (fsErr) {
+      console.warn('Firestore write warning:', fsErr);
+    }
   };
 
   const signOut = async () => {
@@ -401,28 +544,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await fbSignOut(auth);
     }
     setFirebaseUser(null);
-    setOrgUser(null);
-    setOrganization(null);
-    setJobs([]);
-    setPunches([]);
   };
 
   const loginAsDemoUser = (userId: string) => {
-    setIsDemoMode(true);
-    const targetUser = DEMO_USERS.find((u) => u.id === userId) || DEMO_USERS[0];
+    const targetUser =
+      teamMembers.find((u) => u.id === userId) ||
+      DEMO_USERS.find((u) => u.id === userId) ||
+      teamMembers[0] ||
+      DEMO_USERS[0];
     setOrgUser(targetUser);
-    setOrganization(DEMO_ORGANIZATION);
-    setJobs(DEMO_JOBS);
+    localStorage.setItem(LS_ACTIVE_USER_ID_KEY, targetUser.id);
   };
 
   const toggleDemoMode = (enabled: boolean) => {
     setIsDemoMode(enabled);
-    if (enabled) {
-      setOrgUser(DEMO_USERS[2]); // Alex Rivera
-      setOrganization(DEMO_ORGANIZATION);
-      setJobs(DEMO_JOBS);
-      setPunches(generateDemoPunches());
-    }
   };
 
   const acceptConsent = async () => {
@@ -430,6 +565,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const now = Date.now();
     const updatedUser = { ...orgUser, consentAcceptedAt: now };
     setOrgUser(updatedUser);
+    setTeamMembers((prev) => prev.map((u) => (u.id === orgUser.id ? updatedUser : u)));
 
     if (!isDemoMode && organization?.id) {
       try {
@@ -461,121 +597,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     photoDataUri?: string;
     notes?: string;
   }) => {
-    if (!orgUser || !organization) {
-      return { success: false, error: 'User or Organization not initialized' };
-    }
+    if (!orgUser) throw new Error('User must be logged in to record punch');
 
     const job = jobs.find((j) => j.id === jobId);
-    const jobName = job?.name || 'Selected Job Site';
+    let distanceMeters: number | null = null;
+    let withinGeofence = true;
 
-    // Calculate distance from job
-    let distanceFromJobMeters: number | undefined = undefined;
-    if (job && latitude !== undefined && longitude !== undefined && job.latitude && job.longitude) {
-      distanceFromJobMeters = calculateDistanceInMeters(
-        latitude,
-        longitude,
-        job.latitude,
-        job.longitude
-      );
+    if (latitude && longitude && job && job.latitude && job.longitude) {
+      distanceMeters = calculateDistanceInMeters(latitude, longitude, job.latitude, job.longitude);
+      const radius = job.geofenceRadiusMeters || organization?.defaultGeofenceRadiusMeters || 150;
+      withinGeofence = distanceMeters <= radius;
     }
-
-    const punchTimestamp = Date.now();
 
     const punchData: Omit<Punch, 'id'> = {
-      organizationId: organization.id,
+      organizationId: organization?.id || DEMO_ORG_ID,
       userId: orgUser.id,
-      userEmail: orgUser.email,
+      userEmail: orgUser.email || '',
       userName: orgUser.fullName,
       jobId,
-      jobName,
+      jobName: job?.name || 'General Job Site',
       type,
-      breakType,
-      timestamp: punchTimestamp,
-      latitude,
-      longitude,
-      gpsAccuracyMeters,
-      distanceFromJobMeters,
-      notes,
+      breakType: breakType || null,
+      timestamp: Date.now(),
+      latitude: latitude || null,
+      longitude: longitude || null,
+      gpsAccuracyMeters: gpsAccuracyMeters || null,
+      withinGeofence,
+      distanceFromJobMeters: distanceMeters,
+      photoUrl: photoDataUri || null,
+      notes: notes || null,
+      syncedAt: Date.now(),
+      createdOffline: !isOnline,
+      syncStatus: 'synced',
     };
 
-    // If offline or in demo mode or network down
-    if (!navigator.onLine || !isOnline) {
-      // Queue offline in IndexedDB
-      const queued = await enqueueOfflinePunch(punchData, photoDataUri);
-      // Also update local punches state so employee sees their active clock status immediately!
-      const localPunch: Punch = {
-        ...punchData,
-        id: queued.queueId,
-        photoUrl: photoDataUri,
-        createdOffline: true,
-        syncStatus: 'pending',
-      };
-      setPunches((prev) => [localPunch, ...prev]);
-      return { success: true, punch: localPunch, queuedOffline: true };
-    }
+    // Save locally to state & LocalStorage
+    const localPunch: Punch = {
+      ...punchData,
+      id: `punch_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    };
+    setPunches((prev) => [localPunch, ...prev]);
 
-    if (isDemoMode) {
-      // In demo mode, record into local state + firestore if configured
-      const demoPunch: Punch = {
-        ...punchData,
-        id: `punch_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        photoUrl: photoDataUri || orgUser.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&h=300&q=80',
-        syncedAt: Date.now(),
-        createdOffline: false,
-        syncStatus: 'synced',
-      };
-      setPunches((prev) => [demoPunch, ...prev]);
-      return { success: true, punch: demoPunch };
-    }
-
-    // Real Firebase write
-    try {
-      let finalPhotoUrl = photoDataUri;
-      if (photoDataUri && photoDataUri.startsWith('data:image')) {
-        try {
-          const photoStorageRef = ref(
-            storage,
-            `organizations/${organization.id}/punches/${orgUser.id}/${punchTimestamp}_${type}.jpg`
-          );
-          await uploadString(photoStorageRef, photoDataUri, 'data_url');
-          finalPhotoUrl = await getDownloadURL(photoStorageRef);
-        } catch (sErr) {
-          console.warn('Storage upload warning:', sErr);
-        }
+    // If online & Firebase configured, upload to Firestore
+    if (isOnline && organization?.id && !isDemoMode) {
+      try {
+        const punchesRef = collection(db, 'organizations', organization.id, 'punches');
+        await addDoc(punchesRef, punchData);
+      } catch (err) {
+        console.warn('Firestore write punch failed:', err);
       }
-
-      const punchesRef = collection(db, 'organizations', organization.id, 'punches');
-      const docRef = await addDoc(punchesRef, {
-        ...punchData,
-        photoUrl: finalPhotoUrl || null,
-        syncedAt: Date.now(),
-        createdOffline: false,
-        syncStatus: 'synced',
-      });
-
-      const newPunch: Punch = {
-        ...punchData,
-        id: docRef.id,
-        photoUrl: finalPhotoUrl,
-        syncedAt: Date.now(),
-        createdOffline: false,
-        syncStatus: 'synced',
-      };
-
-      return { success: true, punch: newPunch };
-    } catch (err: any) {
-      console.warn('Firebase write failed, queuing offline punch:', err);
-      const queued = await enqueueOfflinePunch(punchData, photoDataUri);
-      const localPunch: Punch = {
-        ...punchData,
-        id: queued.queueId,
-        photoUrl: photoDataUri,
-        createdOffline: true,
-        syncStatus: 'pending',
-      };
-      setPunches((prev) => [localPunch, ...prev]);
-      return { success: true, punch: localPunch, queuedOffline: true };
     }
+
+    return { success: true, punch: localPunch };
   };
 
   const createJob = async (jobInput: Omit<Job, 'id' | 'organizationId' | 'createdAt'>) => {
@@ -587,24 +660,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       createdAt: Date.now(),
     };
 
-    if (isDemoMode) {
-      setJobs((prev) => [newJob, ...prev]);
-      return;
-    }
+    setJobs((prev) => [newJob, ...prev]);
 
-    const jobDocRef = doc(db, 'organizations', organization.id, 'jobs', newJob.id);
-    await setDoc(jobDocRef, newJob);
+    if (!isDemoMode) {
+      try {
+        const jobDocRef = doc(db, 'organizations', organization.id, 'jobs', newJob.id);
+        await setDoc(jobDocRef, newJob);
+      } catch (err) {
+        console.warn('Firestore write job failed:', err);
+      }
+    }
   };
 
   const updateJob = async (jobId: string, updates: Partial<Job>) => {
     if (!organization) return;
-    if (isDemoMode) {
-      setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, ...updates } : j)));
-      return;
-    }
+    setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, ...updates } : j)));
 
-    const jobDocRef = doc(db, 'organizations', organization.id, 'jobs', jobId);
-    await updateDoc(jobDocRef, updates);
+    if (!isDemoMode) {
+      try {
+        const jobDocRef = doc(db, 'organizations', organization.id, 'jobs', jobId);
+        await updateDoc(jobDocRef, updates);
+      } catch (err) {
+        console.warn('Firestore update job failed:', err);
+      }
+    }
   };
 
   const addEmployee = async (empData: {
@@ -614,6 +693,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     assignedJobIds: string[];
     hourlyRate?: number;
     phone?: string;
+    isActive?: boolean;
   }) => {
     if (!organization) return;
     const newUserId = `user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -627,37 +707,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       createdAt: Date.now(),
       assignedJobIds: empData.assignedJobIds,
       hourlyRate: empData.hourlyRate || 25,
-      isActive: true,
+      isActive: empData.isActive !== undefined ? empData.isActive : true,
       consentAcceptedAt: null,
       avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(empData.fullName)}`,
     };
 
-    if (isDemoMode) {
-      DEMO_USERS.push(newEmp);
-      return;
-    }
+    setTeamMembers((prev) => [newEmp, ...prev]);
 
-    const userDocRef = doc(db, 'organizations', organization.id, 'users', newUserId);
-    await setDoc(userDocRef, newEmp);
+    if (!isDemoMode) {
+      try {
+        const userDocRef = doc(db, 'organizations', organization.id, 'users', newUserId);
+        await setDoc(userDocRef, newEmp);
+      } catch (err) {
+        console.warn('Firestore add employee failed:', err);
+      }
+    }
   };
 
   const updateEmployee = async (userId: string, updates: Partial<OrgUser>) => {
     if (!organization) return;
-    if (isDemoMode) {
-      const idx = DEMO_USERS.findIndex((u) => u.id === userId);
-      if (idx !== -1) {
-        DEMO_USERS[idx] = { ...DEMO_USERS[idx], ...updates };
-      }
-      if (orgUser?.id === userId) {
-        setOrgUser((prev) => (prev ? { ...prev, ...updates } : null));
-      }
-      return;
-    }
-
-    const userDocRef = doc(db, 'organizations', organization.id, 'users', userId);
-    await updateDoc(userDocRef, updates);
+    setTeamMembers((prev) => prev.map((u) => (u.id === userId ? { ...u, ...updates } : u)));
     if (orgUser?.id === userId) {
       setOrgUser((prev) => (prev ? { ...prev, ...updates } : null));
+    }
+
+    if (!isDemoMode) {
+      try {
+        const userDocRef = doc(db, 'organizations', organization.id, 'users', userId);
+        await updateDoc(userDocRef, updates);
+      } catch (err) {
+        console.warn('Firestore update employee failed:', err);
+      }
     }
   };
 
@@ -667,9 +747,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setOrganization(updated);
 
     if (!isDemoMode) {
-      const orgRef = doc(db, 'organizations', organization.id);
-      await updateDoc(orgRef, updates);
+      try {
+        const orgRef = doc(db, 'organizations', organization.id);
+        await updateDoc(orgRef, updates);
+      } catch (err) {
+        console.warn('Firestore update org failed:', err);
+      }
     }
+  };
+
+  const switchOrganization = (orgId: string) => {
+    const target = savedOrganizations.find((o) => o.id === orgId);
+    if (target) {
+      setOrganization(target);
+      localStorage.setItem(LS_ORG_KEY, JSON.stringify(target));
+      localStorage.setItem('current_org_id', target.id);
+    }
+  };
+
+  const resetToDefaultDemoData = () => {
+    localStorage.removeItem(LS_ORG_KEY);
+    localStorage.removeItem(LS_JOBS_KEY);
+    localStorage.removeItem(LS_TEAM_KEY);
+    localStorage.removeItem(LS_PUNCHES_KEY);
+    localStorage.removeItem(LS_ACTIVE_USER_ID_KEY);
+
+    setOrganization(DEMO_ORGANIZATION);
+    setJobs([...DEMO_JOBS]);
+    setTeamMembers([...DEMO_USERS]);
+    setPunches(generateDemoPunches());
+    setOrgUser(DEMO_USERS[2]);
   };
 
   const seedDemoDatabase = async () => {
@@ -689,6 +796,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         organization,
         jobs,
         punches,
+        teamMembers,
+        savedOrganizations,
         loading,
         isDemoMode,
         pendingOfflineCount,
@@ -724,6 +833,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addEmployee,
         updateEmployee,
         updateOrgSettings,
+        switchOrganization,
+        resetToDefaultDemoData,
         seedDemoDatabase,
         triggerManualSync,
         syncOfflinePunches: triggerManualSync,

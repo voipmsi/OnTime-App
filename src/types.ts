@@ -64,6 +64,7 @@ export interface Punch {
   latitude?: number;
   longitude?: number;
   gpsAccuracyMeters?: number;
+  withinGeofence?: boolean;
   distanceFromJobMeters?: number;
   syncedAt?: number;
   createdOffline?: boolean;

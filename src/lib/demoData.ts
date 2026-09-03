@@ -130,6 +130,20 @@ export const DEMO_USERS: OrgUser[] = [
     isActive: true,
     avatarUrl: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=256&h=256&q=80',
   },
+  {
+    id: 'user_vaughn_smith',
+    organizationId: DEMO_ORG_ID,
+    role: 'employee',
+    fullName: 'Vaughn Smith',
+    email: 'vaughn.smith@apexfield.com',
+    phone: '(415) 555-0182',
+    createdAt: Date.now() - 2 * 86400000,
+    assignedJobIds: ['job_downtown_plaza', 'job_substation_b12', 'job_north_logistics'],
+    consentAcceptedAt: null,
+    hourlyRate: 32,
+    isActive: true,
+    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=256&h=256&q=80',
+  },
 ];
 
 // Helper to generate realistic sample punches across recent days

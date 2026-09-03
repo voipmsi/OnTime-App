@@ -29,7 +29,7 @@ import { DEMO_USERS } from '../../lib/demoData';
 import { PunchDetailModal } from './PunchDetailModal';
 
 export const TimesheetsView: React.FC = () => {
-  const { punches, jobs, organization } = useAuth();
+  const { punches, jobs, organization, teamMembers } = useAuth();
 
   // Selected date period filter
   const [selectedPeriod, setSelectedPeriod] = useState<'this_pay_period' | 'last_pay_period' | 'all'>('this_pay_period');
@@ -38,14 +38,16 @@ export const TimesheetsView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPunchForAudit, setSelectedPunchForAudit] = useState<Punch | null>(null);
 
+  const currentMembers = teamMembers && teamMembers.length > 0 ? teamMembers : DEMO_USERS;
+
   // Build hourly rate dictionary
   const userHourlyRates = useMemo(() => {
     const rates: Record<string, number> = {};
-    for (const u of DEMO_USERS) {
+    for (const u of currentMembers) {
       if (u.hourlyRate) rates[u.id] = u.hourlyRate;
     }
     return rates;
-  }, []);
+  }, [currentMembers]);
 
   // Derive all shifts
   const allDerivedShifts = useMemo(() => {
@@ -254,7 +256,7 @@ export const TimesheetsView: React.FC = () => {
           className="px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-300 text-slate-800 font-medium focus:outline-none focus:border-indigo-600"
         >
           <option value="all">All Employees</option>
-          {DEMO_USERS.map((u) => (
+          {currentMembers.map((u) => (
             <option key={u.id} value={u.id}>
               {u.fullName}
             </option>

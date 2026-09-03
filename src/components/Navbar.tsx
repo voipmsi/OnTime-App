@@ -18,9 +18,14 @@ import {
   Shield,
   Briefcase,
   AlertCircle,
+  BookOpen,
+  Building2,
+  Download,
+  FileText,
 } from 'lucide-react';
 import { formatSecondsToTimer } from '../lib/timeUtils';
 import { DEMO_USERS } from '../lib/demoData';
+import { generateAdminGuidePDF, generateEmployeeGuidePDF } from '../lib/pdfGenerator';
 
 export type NavigationTab =
   | 'clock'
@@ -29,7 +34,8 @@ export type NavigationTab =
   | 'timesheets'
   | 'jobs'
   | 'team'
-  | 'settings';
+  | 'settings'
+  | 'userguide';
 
 interface NavbarProps {
   activeTab: NavigationTab;
@@ -59,8 +65,29 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenAu
 
   const [isDemoMenuOpen, setIsDemoMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isPdfMenuOpen, setIsPdfMenuOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+
+  const orgName = organization?.name || 'WorkPulse';
+
+  const downloadAdminPDF = () => {
+    try {
+      const doc = generateAdminGuidePDF(orgName);
+      doc.save(`${orgName.replace(/\s+/g, '_')}_Admin_Operations_Guide.pdf`);
+    } catch (err) {
+      console.error('Error generating admin PDF:', err);
+    }
+  };
+
+  const downloadEmployeePDF = () => {
+    try {
+      const doc = generateEmployeeGuidePDF(orgName);
+      doc.save(`${orgName.replace(/\s+/g, '_')}_Employee_Field_Guide.pdf`);
+    } catch (err) {
+      console.error('Error generating employee PDF:', err);
+    }
+  };
 
   const handleManualSync = async () => {
     setIsSyncing(true);
@@ -161,6 +188,79 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenAu
                 <div className="hidden sm:flex items-center space-x-1 text-xs text-slate-400">
                   <Wifi className="w-3.5 h-3.5 text-emerald-400" />
                   <span className="text-[11px]">Live Sync</span>
+                </div>
+              )}
+            </div>
+
+            {/* PDF Guides Download Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setIsPdfMenuOpen(!isPdfMenuOpen)}
+                className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-indigo-600/30 hover:bg-indigo-600/40 border border-indigo-500/50 text-xs font-semibold text-indigo-200 hover:text-white transition shadow-xs"
+                title="Download PDF User & Admin Manuals"
+              >
+                <Download className="w-3.5 h-3.5 text-indigo-300" />
+                <span className="hidden sm:inline">PDF Guides</span>
+                <ChevronDown className="w-3 h-3 text-indigo-300" />
+              </button>
+
+              {isPdfMenuOpen && (
+                <div className="absolute right-0 mt-2 w-72 bg-slate-800 rounded-xl shadow-2xl border border-slate-700 py-2 z-50 animate-in fade-in slide-in-from-top-2">
+                  <div className="px-3 pb-1.5 border-b border-slate-700">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-indigo-300">
+                      Download PDF Guides
+                    </p>
+                    <p className="text-[10px] text-slate-400">
+                      Formatted printable documentation
+                    </p>
+                  </div>
+
+                  <div className="p-1 space-y-1">
+                    <button
+                      onClick={() => {
+                        downloadAdminPDF();
+                        setIsPdfMenuOpen(false);
+                      }}
+                      className="w-full flex items-center space-x-2.5 px-3 py-2 text-left rounded-lg hover:bg-indigo-600/20 text-slate-200 hover:text-white transition group"
+                    >
+                      <div className="p-1.5 rounded-md bg-indigo-500/20 text-indigo-300 group-hover:bg-indigo-600 group-hover:text-white transition">
+                        <Download className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-white">Admin Operations Guide</p>
+                        <p className="text-[10px] text-slate-400">Setup checklist, jobs, rates, & payroll</p>
+                      </div>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        downloadEmployeePDF();
+                        setIsPdfMenuOpen(false);
+                      }}
+                      className="w-full flex items-center space-x-2.5 px-3 py-2 text-left rounded-lg hover:bg-emerald-600/20 text-slate-200 hover:text-white transition group"
+                    >
+                      <div className="p-1.5 rounded-md bg-emerald-500/20 text-emerald-300 group-hover:bg-emerald-600 group-hover:text-white transition">
+                        <Download className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-white">Employee Field Guide</p>
+                        <p className="text-[10px] text-slate-400">Clock in, breaks, offline & timesheet</p>
+                      </div>
+                    </button>
+                  </div>
+
+                  <div className="pt-1 mt-1 border-t border-slate-700 px-2">
+                    <button
+                      onClick={() => {
+                        onTabChange('userguide');
+                        setIsPdfMenuOpen(false);
+                      }}
+                      className="w-full flex items-center justify-center space-x-1.5 px-2.5 py-1.5 rounded-md bg-slate-700/60 hover:bg-slate-700 text-slate-300 text-xs font-medium transition"
+                    >
+                      <BookOpen className="w-3.5 h-3.5 text-indigo-300" />
+                      <span>View Online Documentation</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -395,6 +495,21 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenAu
               )}
             </>
           )}
+
+          <div className="h-4 w-px bg-slate-800 mx-1" />
+
+          {/* User Guide & PDF Download Tab */}
+          <button
+            onClick={() => onTabChange('userguide')}
+            className={`flex items-center space-x-1.5 px-3 py-1 rounded-md text-xs font-medium whitespace-nowrap transition ${
+              activeTab === 'userguide'
+                ? 'bg-indigo-600 text-white shadow-sm font-semibold'
+                : 'text-amber-400 hover:text-amber-300 hover:bg-slate-800'
+            }`}
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>User Guides & PDF</span>
+          </button>
         </div>
       </div>
     </header>
